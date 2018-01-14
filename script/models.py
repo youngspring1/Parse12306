@@ -59,9 +59,18 @@ class TrainDetail(Document):
     service_type = StringField()        # 服务类型
     train_class_name = StringField()    # 列车类型
     stop_info_list = ListField(EmbeddedDocumentField(StopInfo))
+
+    def str(self):
+        return self.__repr__()
+
     def __repr__(self):
         return self.station_train_code + ' (' + self.start_station_name + ' - ' + self.end_station_name + ')'
 
+    def stop_list(self):
+        stop_list = list()
+        for stop in self.stop_info_list:
+            stop_list.append(stop.station_name)
+        return stop_list
 
 # 车站详情-经过列车
 class PassTrain(EmbeddedDocument):

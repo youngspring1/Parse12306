@@ -286,18 +286,17 @@ def exist_station_detail(station_name):
         return False
 
 
-# 经过车次top 20 的高铁站 可以直达的站点数目
-def top_20_gaotie_direct():
+# 经过车次top 10 的高铁站 可以直达的站点数目
+def top_10_gaotie_direct():
     # 高铁站数目
     logging.info('全国高铁站总数 %s' % StationDetail.objects.count())
 
-    # 经过车次top 20 的高铁站
-    results = StationDetail.objects.order_by('-pass_train_num')[:20]
+    # 经过车次top 10 的高铁站
+    results = StationDetail.objects.order_by('-pass_train_num')[:10]
     top_ten_list = list()
     for result in results:
         top_ten_list.append(result.station_name)
-        # logging.info('%s %s' % (result.station_name, result.pass_train_num))
-
+        logging.info('%s %s' % (result.station_name, result.pass_train_num))
 
     # 可以直达的站点
     for station_name in top_ten_list:
@@ -319,63 +318,92 @@ def get_direct_station(station_name):
     return reach_station_list
 
 
+def reach_station_indirect():
+    start = '南京南'
+    reach_station_indirect_list = list()
+
+    # 可以直达的站点
+    reach_station_list = get_direct_station(start)
+    reach_station_indirect_list.extend(reach_station_list)
+
+    # 可以一次换乘到达的站点
+    for station in reach_station_list:
+        temp = get_direct_station(station)
+        reach_station_indirect_list = list(set(reach_station_indirect_list).union(set(temp)))
+
+    logging.info('从 %s 经过一次换乘可以到达 %s 座车站' % (start, len(reach_station_indirect_list)))
+
+
 def find_transfer_plan():
     start = '南京南'
     end = '黄山北'
-    depth = 0
-    logging.info(find_path(start, end, depth))
+    find_path(start, end)
 
 
-def find_path(start, end, depth):
+# 查找两站间的路径
+def find_path(start, end):
     try:
-        depth = depth + 1
-        logging.info('depth: %s' % depth)
+        result_from = StationDetail.objects(station_name=start).first()
+        for pass_train_from in result_from.pass_train_list:
 
-        found = False
-        path = list()
-        reach_station_list = list()
-
-        result = StationDetail.objects(station_name=start).first()
-        for pass_train in result.pass_train_list:
-            station_train_code = pass_train.station_train_code
-            train_detail = TrainDetail.objects(station_train_code=station_train_code).first()
-            for stop_info in train_detail.stop_info_list:
-                if stop_info.station_name == end:
-                    found = True
-                    logging.info(start + '-' + station_train_code + '-' + stop_info.station_name)
-                    path.append(station_train_code + '-' + stop_info.station_name)
-
-                if not stop_info.station_name in reach_station_list:
-                    reach_station_list.append(stop_info.station_name)
-
-        if not found and depth < 2:
-            for station_name in reach_station_list:
-                path.extend(find_path(station_name, end, depth))
-        else:
-            return path
+            result_to = StationDetail.objects(station_name=end).first()
+            for pass_train_to in result_to.pass_train_list:
+                find_common_station(pass_train_from, pass_train_to)
 
     except Exception as exc:
         logging.info(exc)
         return list()
 
+
+# 查看两列火车有没有交点
+def find_common_station(pass_train_from, pass_train_to):
+    train_from = TrainDetail.objects(station_train_code=pass_train_from.station_train_code).first()
+    stop_list_from = train_from.stop_list()
+
+    train_to = TrainDetail.objects(station_train_code=pass_train_to.station_train_code).first()
+    stop_list_to = train_to.stop_list()
+    transfer_list = list((set(stop_list_from).union(set(stop_list_to))) ^ (set(stop_list_from) ^ set(stop_list_to)))
+    if len(transfer_list) > 0:
+        for transfer in transfer_list:
+            # logging.info(transfer)
+            if get_arrive_time(train_from, transfer) < get_start_time(train_to, transfer):
+                logging.info('%s 在(%s)换乘 %s' % (train_from.str(), transfer, train_to.str()))
+
+
+def get_arrive_time(train, station):
+    for stop in train.stop_info_list:
+        if stop.station_name == station:
+            return stop.arrive_time
+
+
+def get_start_time(train, station):
+    for stop in train.stop_info_list:
+        if stop.station_name == station:
+            return stop.start_time
+
+
 def main():
     # 1. Download & Parse station list from 12306
-    # get_station_list()
+    get_station_list()
 
     # 2. Download & Parse train list from 12306
-    # get_train_list()
+    get_train_list()
 
     # 3. Download all train detail with url
-    # get_train_detail_list()
+    get_train_detail_list()
 
     # 4. Merge station stop info
-    # merge_station_stop_info()
+    merge_station_stop_info()
 
     # 经过车次最多的高铁站 能直达的站点
-    # top_20_gaotie_direct()
+    top_10_gaotie_direct()
+
+    # 可间接到达的站点
+    reach_station_indirect()
 
     # 中转换乘方案
     find_transfer_plan()
+
 
 if __name__ == '__main__':
     # file
